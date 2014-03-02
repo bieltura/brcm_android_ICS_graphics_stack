@@ -1,0 +1,882 @@
+diff -Naur aosp_4.0.1/hardware/libhardware/include/hardware/fb.h aosp_4.0.1_drivers/hardware/libhardware/include/hardware/fb.h
+--- aosp_4.0.1/hardware/libhardware/include/hardware/fb.h	2014-03-02 22:25:15.218358935 +0100
++++ aosp_4.0.1_drivers/hardware/libhardware/include/hardware/fb.h	2014-02-27 18:31:07.000000000 +0100
+@@ -63,6 +63,9 @@
+ 
+     /* max swap interval supported by this framebuffer */
+     const int       maxSwapInterval;
++    
++    const int       smem_start;
++    const int       vmem_start;
+ 
+     int reserved[8];
+ 
+diff -Naur aosp_4.0.1/hardware/libhardware/modules/gralloc/Android.mk aosp_4.0.1_drivers/hardware/libhardware/modules/gralloc/Android.mk
+--- aosp_4.0.1/hardware/libhardware/modules/gralloc/Android.mk	2014-03-02 22:25:15.226358935 +0100
++++ aosp_4.0.1_drivers/hardware/libhardware/modules/gralloc/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -15,19 +15,24 @@
+ 
+ LOCAL_PATH := $(call my-dir)
+ 
+-# HAL module implemenation stored in
++# HAL module implemenation, not prelinked and stored in
+ # hw/<OVERLAY_HARDWARE_MODULE_ID>.<ro.product.board>.so
+ include $(CLEAR_VARS)
+-
++LOCAL_PRELINK_MODULE := false
+ LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
+-LOCAL_SHARED_LIBRARIES := liblog libcutils
++LOCAL_SHARED_LIBRARIES := liblog libcutils libv3d
+ 
+-LOCAL_SRC_FILES := 	\
+-	gralloc.cpp 	\
+-	framebuffer.cpp \
+-	mapper.cpp
++LOCAL_SRC_FILES := gralloc.cpp framebuffer.cpp mapper.cpp
+ 	
+ LOCAL_MODULE := gralloc.default
+ LOCAL_CFLAGS:= -DLOG_TAG=\"gralloc\"
+ 
++LOCAL_CFLAGS+= -DLCD_PARTIAL_UPDATES_ENABLED=true
++ifeq ($(BOARD_NO_PAGE_FLIPPING),true)
++	LOCAL_CFLAGS += -DNO_PAGE_FLIPPING
++endif
++
++
++LOCAL_C_INCLUDES += brcm_usrlib/dag/v3d_library/inc
++
+ include $(BUILD_SHARED_LIBRARY)
+diff -Naur aosp_4.0.1/hardware/libhardware/modules/gralloc/framebuffer.cpp aosp_4.0.1_drivers/hardware/libhardware/modules/gralloc/framebuffer.cpp
+--- aosp_4.0.1/hardware/libhardware/modules/gralloc/framebuffer.cpp	2014-03-02 22:25:15.226358935 +0100
++++ aosp_4.0.1_drivers/hardware/libhardware/modules/gralloc/framebuffer.cpp	2014-02-27 18:31:07.000000000 +0100
+@@ -43,7 +43,12 @@
+ /*****************************************************************************/
+ 
+ // numbers of buffers for page flipping
++#if defined(NO_PAGE_FLIPPING)
++// page-flipping is buggy on some devices
++#define NUM_BUFFERS 1
++#else
+ #define NUM_BUFFERS 2
++#endif
+ 
+ 
+ enum {
+@@ -171,6 +176,21 @@
+     info.yoffset = 0;
+     info.activate = FB_ACTIVATE_NOW;
+ 
++#if defined(NO_32BPP)
++    /*
++     * Explicitly request 5/6/5
++     */
++    info.bits_per_pixel = 16;
++    info.red.offset     = 11;
++    info.red.length     = 5;
++    info.green.offset   = 5;
++    info.green.length   = 6;
++    info.blue.offset    = 0;
++    info.blue.length    = 5;
++    info.transp.offset  = 0;
++    info.transp.length  = 0;
++#endif
++
+     /*
+      * Request NUM_BUFFERS screens (at lest 2 for page flipping)
+      */
+@@ -284,6 +304,9 @@
+         return -errno;
+     }
+     module->framebuffer->base = intptr_t(vaddr);
++
++	module->smem_start = (int)finfo.smem_start;
++	module->vmem_start = (int)vaddr;
+     memset(vaddr, 0, fbSize);
+     return 0;
+ }
+@@ -328,25 +351,34 @@
+         dev->device.common.close = fb_close;
+         dev->device.setSwapInterval = fb_setSwapInterval;
+         dev->device.post            = fb_post;
++#if LCD_PARTIAL_UPDATES_ENABLED == true
++        dev->device.setUpdateRect = fb_setUpdateRect;
++#else
+         dev->device.setUpdateRect = 0;
++#endif
+ 
+         private_module_t* m = (private_module_t*)module;
+         status = mapFrameBuffer(m);
+         if (status >= 0) {
+             int stride = m->finfo.line_length / (m->info.bits_per_pixel >> 3);
+             int format = (m->info.bits_per_pixel == 32)
+-                         ? HAL_PIXEL_FORMAT_RGBX_8888
++                         ? HAL_PIXEL_FORMAT_BGRA_8888
+                          : HAL_PIXEL_FORMAT_RGB_565;
++#ifdef NO_32BPP
++            format = HAL_PIXEL_FORMAT_RGB_565;
++#endif
+             const_cast<uint32_t&>(dev->device.flags) = 0;
+             const_cast<uint32_t&>(dev->device.width) = m->info.xres;
+             const_cast<uint32_t&>(dev->device.height) = m->info.yres;
+             const_cast<int&>(dev->device.stride) = stride;
+-            const_cast<int&>(dev->device.format) = format;
++	    const_cast<int&>(dev->device.format) = format;
+             const_cast<float&>(dev->device.xdpi) = m->xdpi;
+             const_cast<float&>(dev->device.ydpi) = m->ydpi;
+             const_cast<float&>(dev->device.fps) = m->fps;
+             const_cast<int&>(dev->device.minSwapInterval) = 1;
+             const_cast<int&>(dev->device.maxSwapInterval) = 1;
++            const_cast<int&>(dev->device.smem_start) = m->smem_start;
++            const_cast<int&>(dev->device.vmem_start) = m->vmem_start;
+             *device = &dev->device.common;
+         }
+     }
+diff -Naur aosp_4.0.1/hardware/libhardware/modules/gralloc/gralloc.cpp aosp_4.0.1_drivers/hardware/libhardware/modules/gralloc/gralloc.cpp
+--- aosp_4.0.1/hardware/libhardware/modules/gralloc/gralloc.cpp	2014-03-02 22:25:15.226358935 +0100
++++ aosp_4.0.1_drivers/hardware/libhardware/modules/gralloc/gralloc.cpp	2014-02-27 18:31:07.000000000 +0100
+@@ -37,15 +37,21 @@
+ #include "gralloc_priv.h"
+ #include "gr.h"
+ 
++#include "ghw_allocator.h"
++#include <linux/android_pmem.h>
++
++using namespace ghw;
+ /*****************************************************************************/
+ 
+ struct gralloc_context_t {
+     alloc_device_t  device;
+     /* our private data here */
++    GhwMemAllocator* allocator;
++    int gemem_master;
+ };
+ 
+ static int gralloc_alloc_buffer(alloc_device_t* dev,
+-        size_t size, int usage, buffer_handle_t* pHandle);
++        size_t size, int usage, buffer_handle_t* pHandle,int w,int h,int format,int stride,int hstride);
+ 
+ /*****************************************************************************/
+ 
+@@ -60,7 +66,7 @@
+         int l, int t, int w, int h,
+         void** vaddr);
+ 
+-extern int gralloc_unlock(gralloc_module_t const* module, 
++extern int gralloc_unlock(gralloc_module_t const* module,
+         buffer_handle_t handle);
+ 
+ extern int gralloc_register_buffer(gralloc_module_t const* module,
+@@ -102,7 +108,7 @@
+ /*****************************************************************************/
+ 
+ static int gralloc_alloc_framebuffer_locked(alloc_device_t* dev,
+-        size_t size, int usage, buffer_handle_t* pHandle)
++        size_t size, int usage, buffer_handle_t* pHandle,int w,int h,int format,int stride,int hstride)
+ {
+     private_module_t* m = reinterpret_cast<private_module_t*>(
+             dev->common.module);
+@@ -125,7 +131,7 @@
+         // we return a regular buffer which will be memcpy'ed to the main
+         // screen when post is called.
+         int newUsage = (usage & ~GRALLOC_USAGE_HW_FB) | GRALLOC_USAGE_HW_2D;
+-        return gralloc_alloc_buffer(dev, bufferSize, newUsage, pHandle);
++        return gralloc_alloc_buffer(dev, bufferSize, newUsage, pHandle,w,h,format,stride,hstride);
+     }
+ 
+     if (bufferMask >= ((1LU<<numBuffers)-1)) {
+@@ -135,6 +141,7 @@
+ 
+     // create a "fake" handles for it
+     intptr_t vaddr = intptr_t(m->framebuffer->base);
++    unsigned int paddr = m->smem_start;
+     private_handle_t* hnd = new private_handle_t(dup(m->framebuffer->fd), size,
+             private_handle_t::PRIV_FLAGS_FRAMEBUFFER);
+ 
+@@ -145,53 +152,82 @@
+             break;
+         }
+         vaddr += bufferSize;
++        paddr += bufferSize;
+     }
+-    
++
+     hnd->base = vaddr;
+     hnd->offset = vaddr - intptr_t(m->framebuffer->base);
++    hnd->p_addr = m->smem_start;
++    hnd->w = w;
++    hnd->h = h;
++    hnd->format = format;
++    hnd->alignedw = stride;
++    hnd->alignedh = hstride;
+     *pHandle = hnd;
+ 
+     return 0;
+ }
+ 
+ static int gralloc_alloc_framebuffer(alloc_device_t* dev,
+-        size_t size, int usage, buffer_handle_t* pHandle)
++        size_t size, int usage, buffer_handle_t* pHandle,int w,int h,int format,int stride,int hstride)
+ {
+     private_module_t* m = reinterpret_cast<private_module_t*>(
+             dev->common.module);
+     pthread_mutex_lock(&m->lock);
+-    int err = gralloc_alloc_framebuffer_locked(dev, size, usage, pHandle);
++    int err = gralloc_alloc_framebuffer_locked(dev, size, usage, pHandle,w,h,format,stride,hstride);
+     pthread_mutex_unlock(&m->lock);
+     return err;
+ }
+ 
+ static int gralloc_alloc_buffer(alloc_device_t* dev,
+-        size_t size, int usage, buffer_handle_t* pHandle)
++        size_t size, int usage, buffer_handle_t* pHandle,int w,int h,int format,int stride, int hstride)
++
+ {
+-    int err = 0;
+-    int fd = -1;
++	int pgsize = PAGE_SIZE;
++	gralloc_context_t* ctx = (gralloc_context_t*)dev;
+ 
+-    size = roundUpToPageSize(size);
+-    
+-    fd = ashmem_create_region("gralloc-buffer", size);
+-    if (fd < 0) {
+-        LOGE("couldn't create ashmem (%s)", strerror(-errno));
+-        err = -errno;
+-    }
++	size = (size + pgsize) & (~(pgsize - 1));
+ 
+-    if (err == 0) {
+-        private_handle_t* hnd = new private_handle_t(fd, size, 0);
+-        gralloc_module_t* module = reinterpret_cast<gralloc_module_t*>(
+-                dev->common.module);
+-        err = mapBuffer(module, hnd);
+-        if (err == 0) {
+-            *pHandle = hnd;
+-        }
+-    }
+-    
+-    LOGE_IF(err, "gralloc failed err=%s", strerror(-err));
+-    
+-    return err;
++	size = 2* size;
++
++	/* get memory linear memory buffers */
++	int fd_handle = open("/dev/gememalloc", O_RDWR);
++    void* v_addr = mmap(0,size,PROT_READ | PROT_WRITE,MAP_SHARED,fd_handle,0);
++
++	if(v_addr == MAP_FAILED)
++	{
++		LOGE("gralloc allocation failed for %d\n",size);
++		return -1;
++	}
++
++   // create a duplicate handles for it
++    private_handle_t* hnd = new private_handle_t(dup(fd_handle), size, 0);
++
++    u32 p_addr;
++    pmem_region PmemRegion;
++    ioctl(fd_handle, PMEM_GET_PHYS, &PmemRegion);
++	p_addr = PmemRegion.offset;
++
++//    handle->lock(p_addr,v_addr,size);
++
++
++	memset(v_addr, 0,size/2);
++	// Save the physical address in offset and p_addr of handle
++    hnd->base = (int)v_addr;
++    hnd->offset = 0;
++	hnd->p_addr = (int)p_addr;
++	hnd->w = w;
++	hnd->h =h;
++	hnd->format = format;
++	hnd->alignedw = stride;
++	hnd->alignedh = hstride;
++//	hnd->handle = (void*)handle;
++	LOGV("gralloc_alloc_buffer: Handle Values physical addr %x,	virtual addr: %x", hnd->p_addr, hnd->base + hnd->offset);
++
++	close(fd_handle);
++
++    *pHandle = hnd;
++	return 0;
+ }
+ 
+ /*****************************************************************************/
+@@ -207,6 +243,9 @@
+ 
+     int align = 4;
+     int bpp = 0;
++    int pad = 1;
++	unsigned int tempw	 = (w+31)&0xFFFFFFE0;
++	unsigned int temph	 = (h+31)&0xFFFFFFE0;
+     switch (format) {
+         case HAL_PIXEL_FORMAT_RGBA_8888:
+         case HAL_PIXEL_FORMAT_RGBX_8888:
+@@ -219,23 +258,48 @@
+         case HAL_PIXEL_FORMAT_RGB_565:
+         case HAL_PIXEL_FORMAT_RGBA_5551:
+         case HAL_PIXEL_FORMAT_RGBA_4444:
++			tempw	 = (w+63)&0xFFFFFFC0;
+             bpp = 2;
+             break;
+-        default:
++        case HAL_PIXEL_FORMAT_YCrCb_420_SP:
++        case HAL_PIXEL_FORMAT_YCbCr_420_SP:
++        case HAL_PIXEL_FORMAT_YV12:
++        case HAL_PIXEL_FORMAT_YCbCr_420_P:
++			tempw	 = (w+63)&0xFFFFFFC0;
++            bpp = 2;
++		    pad = 0;
++            break;
++		case HAL_PIXEL_FORMAT_YCbCr_422_I:
++			tempw	 = (w+63)&0xFFFFFFC0;
++			bpp = 4;
++			pad = 0;
++            break;
++	 default:
+             return -EINVAL;
+     }
+     size_t bpr = (w*bpp + (align-1)) & ~(align-1);
++	if (!(usage & GRALLOC_USAGE_HW_FB)) {
++	bpr = (tempw*bpp + (align-1)) & ~(align-1);
++	}
+     size = bpr * h;
++	if (!(usage & GRALLOC_USAGE_HW_FB)) {
++		size = bpr*temph;
++	}
+     stride = bpr / bpp;
+-
+-    int err;
++	if(pad==0) {
++		tempw = w;
++		temph =  h;
++		stride = w;
++	}
++    int err =0;
+     if (usage & GRALLOC_USAGE_HW_FB) {
+-        err = gralloc_alloc_framebuffer(dev, size, usage, pHandle);
++        err = gralloc_alloc_framebuffer(dev, size, usage, pHandle,w,h,format,w,h);
+     } else {
+-        err = gralloc_alloc_buffer(dev, size, usage, pHandle);
++        err = gralloc_alloc_buffer(dev, size, usage, pHandle,w,h,format,stride,temph);
+     }
+ 
+     if (err < 0) {
++        LOGE("%s: err = %x",__FUNCTION__,err);
+         return err;
+     }
+ 
+@@ -256,11 +320,15 @@
+                 dev->common.module);
+         const size_t bufferSize = m->finfo.line_length * m->info.yres;
+         int index = (hnd->base - m->framebuffer->base) / bufferSize;
+-        m->bufferMask &= ~(1<<index); 
+-    } else { 
+-        gralloc_module_t* module = reinterpret_cast<gralloc_module_t*>(
+-                dev->common.module);
+-        terminateBuffer(module, const_cast<private_handle_t*>(hnd));
++        m->bufferMask &= ~(1<<index);
++    } else {
++        LOGV("gralloc_free: Free - physical addr: %x   virtual addr: %x", hnd->p_addr, hnd->base);
++
++        //GhwMemHandle* handle = (GhwMemHandle*) hnd->handle;
++
++	    //handle->release();
++	    munmap((void*)hnd->base ,hnd->size);
++
+     }
+ 
+     close(hnd->fd);
+@@ -277,6 +345,10 @@
+         /* TODO: keep a list of all buffer_handle_t created, and free them
+          * all here.
+          */
++         delete ctx->allocator;
++         ctx->allocator = NULL;
++         close(ctx->gemem_master);
++         ctx->gemem_master = -1;
+         free(ctx);
+     }
+     return 0;
+@@ -302,6 +374,10 @@
+         dev->device.alloc   = gralloc_alloc;
+         dev->device.free    = gralloc_free;
+ 
++        dev->allocator = GhwMemAllocator::create(GhwMemAllocator::GHW_MEM_ALLOC_RETAIN_ONE, 4*1024*1024, 12);
++
++        dev->gemem_master = open("/dev/gememalloc", O_RDWR);
++
+         *device = &dev->device.common;
+         status = 0;
+     } else {
+diff -Naur aosp_4.0.1/hardware/libhardware/modules/gralloc/gralloc_priv.h aosp_4.0.1_drivers/hardware/libhardware/modules/gralloc/gralloc_priv.h
+--- aosp_4.0.1/hardware/libhardware/modules/gralloc/gralloc_priv.h	2014-03-02 22:25:15.226358935 +0100
++++ aosp_4.0.1_drivers/hardware/libhardware/modules/gralloc/gralloc_priv.h	2014-02-27 18:31:07.000000000 +0100
+@@ -37,13 +37,13 @@
+ struct private_module_t {
+     gralloc_module_t base;
+ 
+-    private_handle_t* framebuffer;
++    struct private_handle_t* framebuffer;
+     uint32_t flags;
+     uint32_t numBuffers;
+     uint32_t bufferMask;
+     pthread_mutex_t lock;
+     buffer_handle_t currentBuffer;
+-    int pmem_master;
++    int gemem_master;
+     void* pmem_master_base;
+ 
+     struct fb_var_screeninfo info;
+@@ -51,6 +51,8 @@
+     float xdpi;
+     float ydpi;
+     float fps;
++	int 	smem_start;
++	int 	vmem_start;
+ };
+ 
+ /*****************************************************************************/
+@@ -61,7 +63,7 @@
+ struct private_handle_t {
+     struct native_handle nativeHandle;
+ #endif
+-    
++
+     enum {
+         PRIV_FLAGS_FRAMEBUFFER = 0x00000001
+     };
+@@ -77,9 +79,18 @@
+     // FIXME: the attributes below should be out-of-line
+     int     base;
+     int     pid;
++    int     p_addr;
++    int		w;
++    int		h;
++    int		format;
++    int		alignedw;
++    int		alignedh;
++
++    void* handle;
+ 
+ #ifdef __cplusplus
+-    static const int sNumInts = 6;
++    static const int sNumInts = 12;
++
+     static const int sNumFds = 1;
+     static const int sMagic = 0x3141592;
+ 
+@@ -99,7 +110,7 @@
+         const private_handle_t* hnd = (const private_handle_t*)h;
+         if (!h || h->version != sizeof(native_handle) ||
+                 h->numInts != sNumInts || h->numFds != sNumFds ||
+-                hnd->magic != sMagic) 
++                hnd->magic != sMagic)
+         {
+             LOGE("invalid gralloc handle (at %p)", h);
+             return -EINVAL;
+diff -Naur aosp_4.0.1/hardware/libhardware/modules/gralloc/gr.h aosp_4.0.1_drivers/hardware/libhardware/modules/gralloc/gr.h
+--- aosp_4.0.1/hardware/libhardware/modules/gralloc/gr.h	2014-03-02 22:25:15.226358935 +0100
++++ aosp_4.0.1_drivers/hardware/libhardware/modules/gralloc/gr.h	2014-02-27 18:31:07.000000000 +0100
+@@ -41,7 +41,6 @@
+ }
+ 
+ int mapFrameBufferLocked(struct private_module_t* module);
+-int terminateBuffer(gralloc_module_t const* module, private_handle_t* hnd);
+ int mapBuffer(gralloc_module_t const* module, private_handle_t* hnd);
+ 
+ /*****************************************************************************/
+diff -Naur aosp_4.0.1/hardware/libhardware/modules/gralloc/mapper.cpp aosp_4.0.1_drivers/hardware/libhardware/modules/gralloc/mapper.cpp
+--- aosp_4.0.1/hardware/libhardware/modules/gralloc/mapper.cpp	2014-03-02 22:25:15.226358935 +0100
++++ aosp_4.0.1_drivers/hardware/libhardware/modules/gralloc/mapper.cpp	2014-02-27 18:31:07.000000000 +0100
+@@ -50,8 +50,8 @@
+     private_handle_t* hnd = (private_handle_t*)handle;
+     if (!(hnd->flags & private_handle_t::PRIV_FLAGS_FRAMEBUFFER)) {
+         size_t size = hnd->size;
+-        void* mappedAddress = mmap(0, size,
+-                PROT_READ|PROT_WRITE, MAP_SHARED, hnd->fd, 0);
++		void* mappedAddress = mmap(0, hnd->size,
++                PROT_READ|PROT_WRITE, MAP_SHARED, hnd->fd , (unsigned long)hnd->p_addr);
+         if (mappedAddress == MAP_FAILED) {
+             LOGE("Could not mmap %s", strerror(errno));
+             return -errno;
+@@ -82,7 +82,7 @@
+ 
+ /*****************************************************************************/
+ 
+-static pthread_mutex_t sMapLock = PTHREAD_MUTEX_INITIALIZER; 
++static pthread_mutex_t sMapLock = PTHREAD_MUTEX_INITIALIZER;
+ 
+ /*****************************************************************************/
+ 
+@@ -125,17 +125,6 @@
+     return gralloc_map(module, hnd, &vaddr);
+ }
+ 
+-int terminateBuffer(gralloc_module_t const* module,
+-        private_handle_t* hnd)
+-{
+-    if (hnd->base) {
+-        // this buffer was mapped, unmap it now
+-        gralloc_unmap(module, hnd);
+-    }
+-
+-    return 0;
+-}
+-
+ int gralloc_lock(gralloc_module_t const* module,
+         buffer_handle_t handle, int usage,
+         int l, int t, int w, int h,
+@@ -157,7 +146,7 @@
+     return 0;
+ }
+ 
+-int gralloc_unlock(gralloc_module_t const* module, 
++int gralloc_unlock(gralloc_module_t const* module,
+         buffer_handle_t handle)
+ {
+     // we're done with a software buffer. nothing to do in this
+diff -Naur aosp_4.0.1/hardware/libhardware/modules/hwcomposer/Android.mk aosp_4.0.1_drivers/hardware/libhardware/modules/hwcomposer/Android.mk
+--- aosp_4.0.1/hardware/libhardware/modules/hwcomposer/Android.mk	2014-03-02 22:25:15.226358935 +0100
++++ aosp_4.0.1_drivers/hardware/libhardware/modules/hwcomposer/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -15,14 +15,22 @@
+ 
+ LOCAL_PATH := $(call my-dir)
+ 
+-# HAL module implemenation stored in
++# HAL module implemenation, not prelinked and stored in
+ # hw/<OVERLAY_HARDWARE_MODULE_ID>.<ro.product.board>.so
+ include $(CLEAR_VARS)
+-
++LOCAL_PRELINK_MODULE := false
+ LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
+-LOCAL_SHARED_LIBRARIES := liblog libEGL
++LOCAL_SHARED_LIBRARIES := liblog libEGL libc libGLESv1_CM libv3d
+ LOCAL_SRC_FILES := hwcomposer.cpp
++LOCAL_C_INCLUDES += \
++		hardware/libhardware/modules/gralloc \
++		brcm_usrlib/dag/v3d_library/inc \
++		hardware/libhardware/modules/gralloc \
++		hardware/common/opencore/codec/include 
++
++LOCAL_CFLAGS += -DDIRECT_RENDERING
++
+ LOCAL_MODULE := hwcomposer.default
+ LOCAL_CFLAGS:= -DLOG_TAG=\"hwcomposer\"
+-LOCAL_MODULE_TAGS := optional
++LOCAL_MODULE_TAGS := eng
+ include $(BUILD_SHARED_LIBRARY)
+diff -Naur aosp_4.0.1/hardware/libhardware/modules/hwcomposer/hwcomposer.cpp aosp_4.0.1_drivers/hardware/libhardware/modules/hwcomposer/hwcomposer.cpp
+--- aosp_4.0.1/hardware/libhardware/modules/hwcomposer/hwcomposer.cpp	2014-03-02 22:25:15.226358935 +0100
++++ aosp_4.0.1_drivers/hardware/libhardware/modules/hwcomposer/hwcomposer.cpp	2014-02-27 18:31:07.000000000 +0100
+@@ -22,15 +22,50 @@
+ #include <cutils/log.h>
+ #include <cutils/atomic.h>
+ 
++#include <cstring>
++
+ #include <hardware/hwcomposer.h>
+ 
++#include "ghw_composer.h"
++#include "gralloc_priv.h"
++#define EGL_EGLEXT_PROTOTYPES
+ #include <EGL/egl.h>
++#include <EGL/eglext.h>
++#include <GLES/gl.h>
+ 
+ /*****************************************************************************/
++namespace ghw{
++
++class GhwMemHandle_Wrap : public GhwMemHandle {
++public:
++	u32 mPhys;
++	void* mVirt;
++	u32 mSize;
++	u32 refcnt;
++	GhwMemHandle_Wrap(u32 phys,void* virt,u32 size):mPhys(phys),mVirt(virt),mSize(size),refcnt(1) {};
++    virtual    ghw_error_e     acquire(){refcnt++; return GHW_ERROR_NONE;};
++    virtual    ghw_error_e     release(){refcnt--; if(refcnt==0) delete this;return GHW_ERROR_NONE;};
++    virtual    ghw_error_e     lock(u32& ipa_addr, void*& virt_addr, u32& size){ipa_addr = mPhys; virt_addr = mVirt; size = mSize;return GHW_ERROR_NONE;};
++    virtual    ghw_error_e     unlock(){return GHW_ERROR_NONE;};
++
++    virtual    ghw_error_e     setName(const char *name){return GHW_ERROR_NONE;};
++    virtual    ghw_error_e     dump(u32 level = 0){return GHW_ERROR_NONE;};
++    virtual ~GhwMemHandle_Wrap(){};
++};
++
++};
++using namespace ghw;
++
++
+ 
+ struct hwc_context_t {
+     hwc_composer_device_t device;
+     /* our private state goes below here */
++	GhwComposer* local_composer;
++	GhwComposer* egl_composer;
++	bool useComposer;
++	unsigned int ucount;
++	unsigned int logtime;
+ };
+ 
+ static int hwc_device_open(const struct hw_module_t* module, const char* name,
+@@ -68,23 +103,225 @@
+ }
+ 
+ static int hwc_prepare(hwc_composer_device_t *dev, hwc_layer_list_t* list) {
++
++    struct hwc_context_t* ctx = (struct hwc_context_t*)dev;
++
+     if (list && (list->flags & HWC_GEOMETRY_CHANGED)) {
++		// Default Settings for composer is to use composer
++		// Hence Set useComposer to true 
++		// Also, Set the composition type to OVERLAY so that Surfaceflinger does not compose these layers
++		ctx->useComposer = true;
++		int compType= HWC_OVERLAY;
++		
+         for (size_t i=0 ; i<list->numHwLayers ; i++) {
+-            //dump_layer(&list->hwLayers[i]);
+-            list->hwLayers[i].compositionType = HWC_FRAMEBUFFER;
++			if(list->hwLayers[i].flags & HWC_SKIP_LAYER) {
++				// Surfaceflinger signalled that HW Composer should not compose this layer
++				// Current design is not capable of drawing some layers using OpenGL and some layers using HW Composer since 
++				// the Order of the requests to HW will be lost.
++				// Hence, when this signal is given, Force Surfaceflinger to composer all layers
++				ctx->useComposer = false;
++				compType = HWC_FRAMEBUFFER;
++				}
++        	}
++		for (size_t i=0 ; i<list->numHwLayers ; i++) {
++            list->hwLayers[i].compositionType = compType;
+         }
+     }
+     return 0;
+ }
+ 
++static int get_lib_format(const int& in, u32& format, u32& intformat)
++{
++	// Foy YUV layers , default output format after conversion is RGB565
++	// Change intformat also change the memory allocations and stride parameters in GRALLOC appropriately
++	switch(in)
++		{
++		case HAL_PIXEL_FORMAT_RGBA_8888:
++			format = GHW_PIXEL_FORMAT_RGBA_8888;
++			intformat = format;
++			break;
++		case HAL_PIXEL_FORMAT_RGBX_8888:
++			format = GHW_PIXEL_FORMAT_RGBX_8888;
++			intformat = format;
++			break;
++		case HAL_PIXEL_FORMAT_RGB_888:
++			format = GHW_PIXEL_FORMAT_RGB_888;
++			intformat = format;
++			break;
++		case HAL_PIXEL_FORMAT_RGB_565:
++			format = GHW_PIXEL_FORMAT_RGB_565;
++			intformat = format;
++			break;
++		case HAL_PIXEL_FORMAT_BGRA_8888:
++			format = GHW_PIXEL_FORMAT_BGRA_8888;
++			intformat = format;
++			break;
++		case HAL_PIXEL_FORMAT_RGBA_5551:
++			format = GHW_PIXEL_FORMAT_RGBA_5551;
++			intformat = format;
++			break;
++		case HAL_PIXEL_FORMAT_RGBA_4444:
++			format = GHW_PIXEL_FORMAT_RGBA_4444;
++			intformat = format;
++			break;
++		case HAL_PIXEL_FORMAT_YCrCb_420_SP:
++			format = GHW_PIXEL_FORMAT_YCrCb_420_SP;
++			intformat = GHW_PIXEL_FORMAT_RGB_565;
++			break;
++		case HAL_PIXEL_FORMAT_YCbCr_420_SP:
++			format = GHW_PIXEL_FORMAT_YCbCr_420_SP;
++			intformat = GHW_PIXEL_FORMAT_RGB_565;
++			break;
++		case HAL_PIXEL_FORMAT_YV12:
++			format = GHW_PIXEL_FORMAT_YCbCr_420_P;
++			intformat = GHW_PIXEL_FORMAT_RGB_565;
++			break;
++		case HAL_PIXEL_FORMAT_YCbCr_420_P:
++			format = GHW_PIXEL_FORMAT_YCbCr_420_P;
++			intformat = GHW_PIXEL_FORMAT_RGB_565;
++			break;
++		default:
++			LOGE("Unsupported format %d",in);
++			return -1;
++		}
++	return 0;
++}
++
+ static int hwc_set(hwc_composer_device_t *dev,
+         hwc_display_t dpy,
+         hwc_surface_t sur,
+         hwc_layer_list_t* list)
+ {
+-    //for (size_t i=0 ; i<list->numHwLayers ; i++) {
+-    //    dump_layer(&list->hwLayers[i]);
+-    //}
++    struct hwc_context_t* ctx = (struct hwc_context_t*)dev;
++	u32 format = 0,intformat =0;
++	GhwComposer* composer;
++
++	// glEGLImageTargetTexture2DOES extension in BroadCom OpenGL library performs the tRSO to Tile Format conversion
++	// glGetTextureStorage is implemented in V3D OpenGL stack to retrieve the Texture physical address (in Tile Format)
++	// If Software OpenGL is used, the OpenGL extension might not be implemented or does not perform Tile Conversion
++	// In Such cases, Tile Conversion is performed here
++
++	const GLubyte* vendor = glGetString(GL_VENDOR);
++		
++	bool convert = (0 != strcmp((const char*)vendor , "Broadcom"));
++
++    void* tempptr = eglGetRenderBufferANDROID((EGLDisplay)dpy, (EGLSurface)sur);
++	ctx->egl_composer = (GhwComposer*)eglGetComposerANDROID((EGLDisplay)dpy, (EGLSurface)sur);
++
++	if (ctx->egl_composer) {
++		composer = ctx->egl_composer;
++		if (ctx->local_composer) {
++			delete ctx->local_composer;
++			ctx->local_composer = NULL;
++		}
++	} else {
++		if (ctx->local_composer == NULL) {
++			ctx->local_composer = GhwComposer::create();
++		}
++		composer = ctx->local_composer;
++	}
++
++	const private_handle_t* fbhandle = reinterpret_cast <const private_handle_t*> (tempptr);
++
++	if(fbhandle == NULL){
++		LOGE("fbhandle is NULL");
++		return 0;
++	}
++    GhwMemHandle* fbwrap = new GhwMemHandle_Wrap(fbhandle->p_addr + fbhandle->offset,(void*)(fbhandle->base),fbhandle->size);
++	GhwImgBuf* img = GhwImgBuf::create();
++	GhwImgBuf* intimg = GhwImgBuf::create();
++	GhwImgOp* op = GhwImgOp::create();
++
++	if( ctx->useComposer && list) {
++		img->setMemHandle(fbwrap);
++		img->setGeometry(fbhandle->alignedw,fbhandle->alignedh);
++		get_lib_format(fbhandle->format,format,intformat);
++		img->setFormat(format);
++		img->setCrop(fbhandle->w,fbhandle->h);
++
++		composer->compSetFb(img,GHW_DITHER_NONE);
++
++		for (size_t i=0 ; i<list->numHwLayers ; i++) {
++			const private_handle_t* handle = reinterpret_cast <const private_handle_t*>(list->hwLayers[i].handle);
++			if(handle == NULL) {
++				continue;
++				}
++			if(get_lib_format(handle->format,format,intformat)) {
++				LOGE("Skipping layer draw with unknown format %d",handle->format);
++				continue;
++				}
++			GhwMemHandle* wrap = new GhwMemHandle_Wrap(handle->p_addr,(void*)(handle->base),handle->size/2);
++			img->setMemHandle(wrap);
++			img->setGeometry(handle->alignedw,handle->alignedh);
++			img->setFormat(format);
++			img->setCrop(handle->w,handle->h);
++
++			GhwMemHandle* intwrap =  new GhwMemHandle_Wrap((u32)(handle->p_addr + (handle->size/2)),(void*)(handle->base+(handle->size/2)),handle->size/2);
++			intimg->setMemHandle(intwrap);
++			intimg->setGeometry(handle->alignedw,handle->alignedh);
++			intimg->setFormat(intformat,GHW_MEM_LAYOUT_TILED);
++			intimg->setCrop(handle->w,handle->h);
++
++			op->setDstWindow(0,0,handle->w,handle->h);
++			op->setTransform(0);
++
++			if(convert) composer->imgProcess(img,intimg,op,0);
++
++			hwc_rect_t* rect = &list->hwLayers[i].sourceCrop;
++			intimg->setCrop(rect->left,rect->top,rect->right,rect->bottom);
++
++			rect = &list->hwLayers[i].displayFrame;
++			op->setDstWindow(rect->left,rect->top,rect->right,rect->bottom);
++			op->setTransform(list->hwLayers[i].transform);
++
++			composer->compDrawRect(intimg,op);
++			wrap->release();
++			intwrap->release();
++			}
++		composer->compCommit(0);
++		composer->barrier();
++		}
++	else {
++		glFlush();
++
++		if((fbhandle->format == HAL_PIXEL_FORMAT_BGRA_8888) && !convert) {
++			
++			img->setMemHandle(fbwrap);
++			img->setGeometry(fbhandle->alignedw,fbhandle->alignedh);
++			get_lib_format(HAL_PIXEL_FORMAT_RGBA_8888,format,intformat);
++			img->setFormat(format);
++			img->setCrop(fbhandle->w,fbhandle->h);
++
++			intimg->setMemHandle(fbwrap);
++			intimg->setGeometry(fbhandle->alignedw,fbhandle->alignedh);
++			get_lib_format(fbhandle->format,format,intformat);
++			intimg->setFormat(format);
++			intimg->setCrop(fbhandle->w,fbhandle->h);
++
++			op->setDstWindow(0,0,fbhandle->alignedw,fbhandle->alignedh);
++			op->setTransform(0);
++
++			composer->imgProcess(img,intimg,op,0);
++			}
++		composer->barrier();
++
++		}
++		
++		fbwrap->release();
++		delete img;
++		delete intimg;
++		delete op;
++
++        struct timeval t1;
++        gettimeofday(&t1,NULL);
++
++        if(t1.tv_sec == ctx->logtime) {
++			ctx->ucount++;
++			} else {
++			LOGE("FrameBuffer [%d] reloads", ctx->ucount);
++			ctx->ucount = 1;
++			ctx->logtime = t1.tv_sec;
++			}
+ 
+     EGLBoolean sucess = eglSwapBuffers((EGLDisplay)dpy, (EGLSurface)sur);
+     if (!sucess) {
+@@ -97,6 +334,9 @@
+ {
+     struct hwc_context_t* ctx = (struct hwc_context_t*)dev;
+     if (ctx) {
++		delete ctx->local_composer;
++		ctx->local_composer = NULL;
++		ctx->egl_composer = NULL;
+         free(ctx);
+     }
+     return 0;
+@@ -108,6 +348,7 @@
+         struct hw_device_t** device)
+ {
+     int status = -EINVAL;
++	LOGE("hwc_device_open");
+     if (!strcmp(name, HWC_HARDWARE_COMPOSER)) {
+         struct hwc_context_t *dev;
+         dev = (hwc_context_t*)malloc(sizeof(*dev));
+@@ -123,7 +364,11 @@
+ 
+         dev->device.prepare = hwc_prepare;
+         dev->device.set = hwc_set;
++		dev->local_composer = GhwComposer::create();
++		dev->useComposer = true;
+ 
++        dev->logtime =0;
++		dev->ucount =0;
+         *device = &dev->device.common;
+         status = 0;
+     }

@@ -1,0 +1,14 @@
+diff -Naur aosp_4.0.1/bionic/libc/private/bionic_tls.h aosp_4.0.1_drivers/bionic/libc/private/bionic_tls.h
+--- aosp_4.0.1/bionic/libc/private/bionic_tls.h	2014-03-02 22:21:31.738366714 +0100
++++ aosp_4.0.1_drivers/bionic/libc/private/bionic_tls.h	2014-02-27 18:31:02.000000000 +0100
+@@ -124,7 +124,9 @@
+  /* The kernel provides the address of the TLS at a fixed
+   * address of the magic page too.
+   */
+-#      define __get_tls() ( *((volatile void **) 0xffff0ff0) )
++/* #      define __get_tls() ( *((volatile void **) 0xffff0ff0) ) */
++  typedef volatile void* (__kernel_get_tls_t)(void);
++#    define __get_tls() (*(__kernel_get_tls_t *)0xffff0fe0)()
+ #    endif
+ #  endif /* !LIBC_STATIC */
+ #else /* !ARM */

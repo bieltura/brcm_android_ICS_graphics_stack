@@ -87,7 +87,7 @@ Instructions to build this Graphics stack on Android ICS project:
    repo init -u https://android.googlesource.com/platform/manifest -b android-4.0.1_r1.1
    repo sync -j8
 
-2. Extract the content of this package (excludes this README.txt) in the root directory of the Android ICS workspace:
+2. Extract the content of this package (excludes this README.txt, and diff folders) in the root directory of the Android ICS workspace or apply diff's files inside diff/ folder in the root directory of the Android ICS workspace
 
 3. Build the Android source tree with the following sequence of commands:
 

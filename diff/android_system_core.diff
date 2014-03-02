@@ -1,0 +1,22 @@
+diff -Naur aosp_4.0.1/system/core/include/system/graphics.h aosp_4.0.1_drivers/system/core/include/system/graphics.h
+--- aosp_4.0.1/system/core/include/system/graphics.h	2014-03-02 22:28:04.246353052 +0100
++++ aosp_4.0.1_drivers/system/core/include/system/graphics.h	2014-02-27 18:31:07.000000000 +0100
+@@ -84,7 +84,7 @@
+      *   cb_offset = y_size + c_size
+      *
+      */
+-    HAL_PIXEL_FORMAT_YV12   = 0x32315659, // YCrCb 4:2:0 Planar
++//    HAL_PIXEL_FORMAT_YV12   = 0x32315659, // YCrCb 4:2:0 Planar
+ 
+ 
+ 
+@@ -92,6 +92,9 @@
+     HAL_PIXEL_FORMAT_YCbCr_422_SP       = 0x10, // NV16
+     HAL_PIXEL_FORMAT_YCrCb_420_SP       = 0x11, // NV21
+     HAL_PIXEL_FORMAT_YCbCr_422_I        = 0x14, // YUY2
++    HAL_PIXEL_FORMAT_YCbCr_420_SP	= 0x15,
++    HAL_PIXEL_FORMAT_YV12		= 0x16,
++    HAL_PIXEL_FORMAT_YCbCr_420_P	= 0x17,
+ };
+ 
+ 

@@ -1,0 +1,266 @@
+diff -Naur aosp_4.0.1/external/webrtc/src/common_audio/resampler/main/source/Android.mk aosp_4.0.1_drivers/external/webrtc/src/common_audio/resampler/main/source/Android.mk
+--- aosp_4.0.1/external/webrtc/src/common_audio/resampler/main/source/Android.mk	2014-03-02 22:24:08.426361260 +0100
++++ aosp_4.0.1_drivers/external/webrtc/src/common_audio/resampler/main/source/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -25,8 +25,15 @@
+     '-DNO_HEAPCHECKER' \
+     '-DWEBRTC_TARGET_PC' \
+     '-DWEBRTC_LINUX' \
+-    '-DWEBRTC_ANDROID' \
+     '-DANDROID' 
++
++ifneq ($(TARGET_ARCH_VARIANT),armv5te)
++ifneq ($(TARGET_ARCH_VARIANT),armv5te-vfp)
++MY_DEFS += \
++    '-DWEBRTC_ANDROID'
++endif
++endif
++
+ LOCAL_CFLAGS := $(MY_CFLAGS_C) $(MY_CFLAGS) $(MY_DEFS)
+ 
+ # Include paths placed before CFLAGS/CPPFLAGS
+diff -Naur aosp_4.0.1/external/webrtc/src/common_audio/signal_processing_library/main/source/Android.mk aosp_4.0.1_drivers/external/webrtc/src/common_audio/signal_processing_library/main/source/Android.mk
+--- aosp_4.0.1/external/webrtc/src/common_audio/signal_processing_library/main/source/Android.mk	2014-03-02 22:24:08.430361260 +0100
++++ aosp_4.0.1_drivers/external/webrtc/src/common_audio/signal_processing_library/main/source/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -70,9 +70,17 @@
+     '-DWEBRTC_LINUX' 
+ ifeq ($(TARGET_ARCH),arm) 
+ MY_DEFS += \
+-    '-DWEBRTC_ANDROID' \
+     '-DANDROID' 
++
++ifneq ($(TARGET_ARCH_VARIANT),armv5te)
++ifneq ($(TARGET_ARCH_VARIANT),armv5te-vfp)
++MY_DEFS += \
++    '-DWEBRTC_ANDROID'
++endif
+ endif
++
++endif
++
+ LOCAL_CFLAGS := $(MY_CFLAGS_C) $(MY_CFLAGS) $(MY_DEFS)
+ 
+ # Include paths placed before CFLAGS/CPPFLAGS
+diff -Naur aosp_4.0.1/external/webrtc/src/common_audio/vad/main/source/Android.mk aosp_4.0.1_drivers/external/webrtc/src/common_audio/vad/main/source/Android.mk
+--- aosp_4.0.1/external/webrtc/src/common_audio/vad/main/source/Android.mk	2014-03-02 22:24:08.446361259 +0100
++++ aosp_4.0.1_drivers/external/webrtc/src/common_audio/vad/main/source/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -31,9 +31,16 @@
+     '-DWEBRTC_LINUX' 
+ ifeq ($(TARGET_ARCH),arm) 
+ MY_DEFS += \
+-    '-DWEBRTC_ANDROID' \
+     '-DANDROID' 
++
++ifneq ($(TARGET_ARCH_VARIANT),armv5te)
++ifneq ($(TARGET_ARCH_VARIANT),armv5te-vfp)
++MY_DEFS += \
++    '-DWEBRTC_ANDROID'
++endif
+ endif
++endif
++
+ LOCAL_CFLAGS := $(MY_CFLAGS_C) $(MY_CFLAGS) $(MY_DEFS)
+ 
+ # Include paths placed before CFLAGS/CPPFLAGS
+diff -Naur aosp_4.0.1/external/webrtc/src/modules/audio_processing/aec/main/source/Android.mk aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/aec/main/source/Android.mk
+--- aosp_4.0.1/external/webrtc/src/modules/audio_processing/aec/main/source/Android.mk	2014-03-02 22:24:08.450361259 +0100
++++ aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/aec/main/source/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -30,13 +30,20 @@
+     '-DWEBRTC_THREAD_RR'
+ ifeq ($(TARGET_ARCH),arm) 
+ MY_DEFS += \
+-    '-DWEBRTC_ANDROID' \
+     '-DANDROID' 
++ifneq ($(TARGET_ARCH_VARIANT),armv5te)
++ifneq ($(TARGET_ARCH_VARIANT),armv5te-vfp)
++MY_DEFS += \
++    '-DWEBRTC_ANDROID'
++endif
++endif
+ else
+ LOCAL_SRC_FILES += \
+     aec_core_sse2.c \
+     aec_rdft_sse2.c
+ endif
++
++
+ LOCAL_CFLAGS := $(MY_CFLAGS_C) $(MY_CFLAGS) $(MY_DEFS)
+ 
+ # Include paths placed before CFLAGS/CPPFLAGS
+diff -Naur aosp_4.0.1/external/webrtc/src/modules/audio_processing/aecm/main/source/Android.mk aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/aecm/main/source/Android.mk
+--- aosp_4.0.1/external/webrtc/src/modules/audio_processing/aecm/main/source/Android.mk	2014-03-02 22:24:08.454361259 +0100
++++ aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/aecm/main/source/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -28,9 +28,16 @@
+     '-DWEBRTC_THREAD_RR'
+ ifeq ($(TARGET_ARCH),arm) 
+ MY_DEFS += \
+-    '-DWEBRTC_ANDROID' \
+     '-DANDROID' 
++
++ifneq ($(TARGET_ARCH_VARIANT),armv5te)
++ifneq ($(TARGET_ARCH_VARIANT),armv5te-vfp)
++MY_DEFS += \
++    '-DWEBRTC_ANDROID'
++endif
+ endif
++endif
++
+ LOCAL_CFLAGS := $(MY_CFLAGS_C) $(MY_CFLAGS) $(MY_DEFS)
+ 
+ # Include paths placed before CFLAGS/CPPFLAGS
+diff -Naur aosp_4.0.1/external/webrtc/src/modules/audio_processing/agc/main/source/Android.mk aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/agc/main/source/Android.mk
+--- aosp_4.0.1/external/webrtc/src/modules/audio_processing/agc/main/source/Android.mk	2014-03-02 22:24:08.462361259 +0100
++++ aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/agc/main/source/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -22,9 +22,16 @@
+     '-DWEBRTC_THREAD_RR'
+ ifeq ($(TARGET_ARCH),arm) 
+ MY_DEFS += \
+-    '-DWEBRTC_ANDROID' \
+     '-DANDROID' 
++
++ifneq ($(TARGET_ARCH_VARIANT),armv5te)
++ifneq ($(TARGET_ARCH_VARIANT),armv5te-vfp)
++MY_DEFS += \
++    '-DWEBRTC_ANDROID'
++endif
+ endif
++endif
++
+ LOCAL_CFLAGS := $(MY_CFLAGS_C) $(MY_CFLAGS) $(MY_DEFS)
+ 
+ # Include paths placed before CFLAGS/CPPFLAGS
+diff -Naur aosp_4.0.1/external/webrtc/src/modules/audio_processing/main/source/Android.mk aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/main/source/Android.mk
+--- aosp_4.0.1/external/webrtc/src/modules/audio_processing/main/source/Android.mk	2014-03-02 22:24:08.462361259 +0100
++++ aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/main/source/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -40,9 +40,17 @@
+ #   -DWEBRTC_NS_FLOAT'
+ ifeq ($(TARGET_ARCH),arm) 
+ MY_DEFS += \
+-    '-DWEBRTC_ANDROID' \
+     '-DANDROID' 
++
++ifneq ($(TARGET_ARCH_VARIANT),armv5te)
++ifneq ($(TARGET_ARCH_VARIANT),armv5te-vfp)
++MY_DEFS += \
++    '-DWEBRTC_ANDROID'
++endif
+ endif
++endif
++
++
+ LOCAL_CFLAGS := $(MY_CFLAGS_C) $(MY_CFLAGS) $(MY_DEFS)
+ 
+ # Include paths placed before CFLAGS/CPPFLAGS
+diff -Naur aosp_4.0.1/external/webrtc/src/modules/audio_processing/main/test/process_test/Android.mk aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/main/test/process_test/Android.mk
+--- aosp_4.0.1/external/webrtc/src/modules/audio_processing/main/test/process_test/Android.mk	2014-03-02 22:24:08.470361259 +0100
++++ aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/main/test/process_test/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -22,9 +22,15 @@
+     '-DWEBRTC_TARGET_PC' \
+     '-DWEBRTC_LINUX' \
+     '-DWEBRTC_THREAD_RR' \
+-    '-DWEBRTC_ANDROID' \
+     '-DANDROID' 
+ 
++ifneq ($(TARGET_ARCH_VARIANT),armv5te)
++ifneq ($(TARGET_ARCH_VARIANT),armv5te-vfp)
++LOCAL_CFLAGS += \
++    '-DWEBRTC_ANDROID'
++endif
++endif
++
+ LOCAL_CPPFLAGS := 
+ LOCAL_LDFLAGS :=
+ LOCAL_C_INCLUDES := \
+diff -Naur aosp_4.0.1/external/webrtc/src/modules/audio_processing/main/test/process_test/process_test.cc aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/main/test/process_test/process_test.cc
+--- aosp_4.0.1/external/webrtc/src/modules/audio_processing/main/test/process_test/process_test.cc	2014-03-02 22:24:08.470361259 +0100
++++ aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/main/test/process_test/process_test.cc	2014-02-27 18:31:07.000000000 +0100
+@@ -10,9 +10,7 @@
+ 
+ #include <stdio.h>
+ #include <string.h>
+-#ifdef WEBRTC_ANDROID
+ #include <sys/stat.h>
+-#endif
+ 
+ #include "tick_util.h"
+ #include "gtest/gtest.h"
+diff -Naur aosp_4.0.1/external/webrtc/src/modules/audio_processing/main/test/unit_test/Android.mk aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/main/test/unit_test/Android.mk
+--- aosp_4.0.1/external/webrtc/src/modules/audio_processing/main/test/unit_test/Android.mk	2014-03-02 22:24:08.470361259 +0100
++++ aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/main/test/unit_test/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -22,9 +22,15 @@
+     '-DWEBRTC_TARGET_PC' \
+     '-DWEBRTC_LINUX' \
+     '-DWEBRTC_THREAD_RR' \
+-    '-DWEBRTC_ANDROID' \
+     '-DANDROID' 
+ 
++ifneq ($(TARGET_ARCH_VARIANT),armv5te)
++ifneq ($(TARGET_ARCH_VARIANT),armv5te-vfp)
++LOCAL_CFLAGS += \
++    '-DWEBRTC_ANDROID'
++endif
++endif
++
+ LOCAL_CPPFLAGS := 
+ LOCAL_LDFLAGS :=
+ LOCAL_C_INCLUDES := \
+diff -Naur aosp_4.0.1/external/webrtc/src/modules/audio_processing/ns/main/source/Android.mk aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/ns/main/source/Android.mk
+--- aosp_4.0.1/external/webrtc/src/modules/audio_processing/ns/main/source/Android.mk	2014-03-02 22:24:08.474361258 +0100
++++ aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/ns/main/source/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -25,9 +25,16 @@
+     '-DWEBRTC_THREAD_RR'
+ ifeq ($(TARGET_ARCH),arm) 
+ MY_DEFS += \
+-    '-DWEBRTC_ANDROID' \
+     '-DANDROID' 
+ endif
++
++ifneq ($(TARGET_ARCH_VARIANT),armv5te)
++ifneq ($(TARGET_ARCH_VARIANT),armv5te-vfp)
++MY_DEFS += \
++    '-DWEBRTC_ANDROID'
++endif
++endif
++
+ LOCAL_CFLAGS := $(MY_CFLAGS_C) $(MY_CFLAGS) $(MY_DEFS)
+ 
+ # Include paths placed before CFLAGS/CPPFLAGS
+diff -Naur aosp_4.0.1/external/webrtc/src/modules/audio_processing/utility/Android.mk aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/utility/Android.mk
+--- aosp_4.0.1/external/webrtc/src/modules/audio_processing/utility/Android.mk	2014-03-02 22:24:08.478361258 +0100
++++ aosp_4.0.1_drivers/external/webrtc/src/modules/audio_processing/utility/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -26,8 +26,15 @@
+     '-DWEBRTC_TARGET_PC' \
+     '-DWEBRTC_LINUX' \
+     '-DWEBRTC_THREAD_RR' \
+-    '-DWEBRTC_ANDROID' \
+     '-DANDROID' 
++
++ifneq ($(TARGET_ARCH_VARIANT),armv5te)
++ifneq ($(TARGET_ARCH_VARIANT),armv5te-vfp)
++MY_DEFS += \
++    '-DWEBRTC_ANDROID'
++endif
++endif
++
+ LOCAL_CFLAGS := $(MY_CFLAGS_C) $(MY_CFLAGS) $(MY_DEFS)
+ 
+ # Include paths placed before CFLAGS/CPPFLAGS
+diff -Naur aosp_4.0.1/external/webrtc/src/system_wrappers/source/Android.mk aosp_4.0.1_drivers/external/webrtc/src/system_wrappers/source/Android.mk
+--- aosp_4.0.1/external/webrtc/src/system_wrappers/source/Android.mk	2014-03-02 22:24:08.482361258 +0100
++++ aosp_4.0.1_drivers/external/webrtc/src/system_wrappers/source/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -42,8 +42,15 @@
+     '-DWEBRTC_LINUX' \
+     '-DWEBRTC_CLOCK_TYPE_REALTIME' \
+     '-DWEBRTC_THREAD_RR' \
+-    '-DWEBRTC_ANDROID' \
+     '-DANDROID' 
++
++ifneq ($(TARGET_ARCH_VARIANT),armv5te)
++ifneq ($(TARGET_ARCH_VARIANT),armv5te-vfp)
++ MY_DEFS += \
++    '-DWEBRTC_ANDROID'
++endif
++endif
++
+ LOCAL_CFLAGS := $(MY_CFLAGS_C) $(MY_CFLAGS) $(MY_DEFS)
+ 
+ # Include paths placed before CFLAGS/CPPFLAGS

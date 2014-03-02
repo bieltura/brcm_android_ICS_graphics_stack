@@ -1,0 +1,348 @@
+diff -Naur aosp_4.0.1/frameworks/base/opengl/include/EGL/eglext.h aosp_4.0.1_drivers/frameworks/base/opengl/include/EGL/eglext.h
+--- aosp_4.0.1/frameworks/base/opengl/include/EGL/eglext.h	2014-03-02 22:25:01.406359416 +0100
++++ aosp_4.0.1_drivers/frameworks/base/opengl/include/EGL/eglext.h	2014-02-27 18:31:07.000000000 +0100
+@@ -237,6 +237,15 @@
+ typedef EGLBoolean (EGLAPIENTRYP PFNEGLSETSWAPRECTANGLEANDROIDPROC) (EGLDisplay dpy, EGLSurface draw, EGLint left, EGLint top, EGLint width, EGLint height);
+ #endif
+ 
++#ifndef EGL_ANDROID_get_render_buffer
++#define EGL_ANDROID_get_render_buffer 1
++#ifdef EGL_EGLEXT_PROTOTYPES
++EGLAPI EGLClientBuffer EGLAPIENTRY eglGetRenderBufferANDROID(EGLDisplay dpy, EGLSurface draw);
++EGLAPI void* EGLAPIENTRY eglGetComposerANDROID(EGLDisplay dpy, EGLSurface draw);
++
++#endif
++typedef EGLClientBuffer (EGLAPIENTRYP PFNEGLGETRENDERBUFFERANDROIDPROC) (EGLDisplay dpy, EGLSurface draw);
++#endif
+ #ifndef EGL_ANDROID_recordable
+ #define EGL_ANDROID_recordable 1
+ #define EGL_RECORDABLE_ANDROID                  0x3142  /* EGLConfig attribute */
+diff -Naur aosp_4.0.1/frameworks/base/opengl/libagl/egl.cpp aosp_4.0.1_drivers/frameworks/base/opengl/libagl/egl.cpp
+--- aosp_4.0.1/frameworks/base/opengl/libagl/egl.cpp	2014-03-02 22:25:01.438359415 +0100
++++ aosp_4.0.1_drivers/frameworks/base/opengl/libagl/egl.cpp	2014-02-27 18:31:07.000000000 +0100
+@@ -160,6 +160,7 @@
+     virtual     EGLint      getSwapBehavior() const;
+     virtual     EGLBoolean  swapBuffers();
+     virtual     EGLBoolean  setSwapRectangle(EGLint l, EGLint t, EGLint w, EGLint h);
++    virtual     EGLClientBuffer  getRenderBuffer();
+ protected:
+     GGLSurface              depth;
+ };
+@@ -203,6 +204,10 @@
+ {
+     return EGL_FALSE;
+ }
++EGLClientBuffer egl_surface_t::getRenderBuffer()
++{
++    return NULL;
++}
+ 
+ // ----------------------------------------------------------------------------
+ 
+@@ -228,6 +233,7 @@
+     virtual     EGLint      getRefreshRate() const;
+     virtual     EGLint      getSwapBehavior() const;
+     virtual     EGLBoolean  setSwapRectangle(EGLint l, EGLint t, EGLint w, EGLint h);
++    virtual     EGLClientBuffer  getRenderBuffer();
+     
+ private:
+     status_t lock(ANativeWindowBuffer* buf, int usage, void** vaddr);
+@@ -566,6 +572,12 @@
+     return EGL_TRUE;
+ }
+ 
++EGLClientBuffer egl_window_surface_v2_t::getRenderBuffer()
++{
++    return const_cast<native_handle*>(buffer->handle);
++}
++
++
+ EGLBoolean egl_window_surface_v2_t::bindDrawSurface(ogles_context_t* gl)
+ {
+     GGLSurface buffer;
+@@ -795,6 +807,7 @@
+         // "KHR_image_pixmap "
+         "EGL_ANDROID_image_native_buffer "
+         "EGL_ANDROID_swap_rectangle "
++        "EGL_ANDROID_get_render_buffer "
+         ;
+ 
+ // ----------------------------------------------------------------------------
+@@ -847,6 +860,10 @@
+             (__eglMustCastToProperFunctionPointerType)&eglDestroyImageKHR }, 
+     { "eglSetSwapRectangleANDROID", 
+             (__eglMustCastToProperFunctionPointerType)&eglSetSwapRectangleANDROID }, 
++    { "eglGetRenderBufferANDROID",
++            (__eglMustCastToProperFunctionPointerType)&eglGetRenderBufferANDROID },
++    { "eglGetComposerANDROID",
++            (__eglMustCastToProperFunctionPointerType)&eglGetComposerANDROID },        
+ };
+ 
+ /*
+@@ -2072,3 +2089,25 @@
+ 
+     return EGL_TRUE;
+ }
++
++
++EGLClientBuffer eglGetRenderBufferANDROID(EGLDisplay dpy, EGLSurface draw)
++{
++    if (egl_display_t::is_valid(dpy) == EGL_FALSE)
++        return setError(EGL_BAD_DISPLAY, (EGLClientBuffer)0);
++
++    egl_surface_t* d = static_cast<egl_surface_t*>(draw);
++    if (!d->isValid())
++        return setError(EGL_BAD_SURFACE, (EGLClientBuffer)0);
++    if (d->dpy != dpy)
++        return setError(EGL_BAD_DISPLAY, (EGLClientBuffer)0);
++
++    // post the surface
++    return d->getRenderBuffer();
++}
++
++void* eglGetComposerANDROID(EGLDisplay dpy, EGLSurface draw)
++{
++    return NULL;
++}
++
+diff -Naur aosp_4.0.1/frameworks/base/opengl/libs/EGL/eglApi.cpp aosp_4.0.1_drivers/frameworks/base/opengl/libs/EGL/eglApi.cpp
+--- aosp_4.0.1/frameworks/base/opengl/libs/EGL/eglApi.cpp	2014-03-02 22:25:01.466359414 +0100
++++ aosp_4.0.1_drivers/frameworks/base/opengl/libs/EGL/eglApi.cpp	2014-02-27 18:31:07.000000000 +0100
+@@ -1459,6 +1459,33 @@
+     }
+     return setError(EGL_BAD_DISPLAY, NULL);
+ }
++EGLClientBuffer eglGetRenderBufferANDROID(EGLDisplay dpy, EGLSurface draw)
++{
++    SurfaceRef _s(draw);
++    if (!_s.get()) return setError(EGL_BAD_SURFACE, (EGLClientBuffer*)0);
++
++    egl_display_t const * const dp = validate_display(dpy);
++    egl_surface_t const * const s = get_surface(draw);
++    if (s->cnx->egl.eglGetRenderBufferANDROID) {
++        return s->cnx->egl.eglGetRenderBufferANDROID(
++                dp->disp[s->impl].dpy, s->surface);
++    }
++    return setError(EGL_BAD_DISPLAY, (EGLClientBuffer*)0);
++}
++
++void* eglGetComposerANDROID(EGLDisplay dpy, EGLSurface draw)
++{
++    SurfaceRef _s(draw);
++    if (!_s.get()) return setError(EGL_BAD_SURFACE, (EGLClientBuffer*)0);
++
++    egl_display_t const * const dp = validate_display(dpy);
++    egl_surface_t const * const s = get_surface(draw);
++    if (s->cnx->egl.eglGetComposerANDROID) {
++        return (void*)s->cnx->egl.eglGetComposerANDROID(
++                dp->disp[s->impl].dpy, s->surface);
++    }
++    return setError(EGL_BAD_DISPLAY, (EGLClientBuffer*)0);
++}
+ 
+ // ----------------------------------------------------------------------------
+ // NVIDIA extensions
+diff -Naur aosp_4.0.1/frameworks/base/opengl/libs/EGL/egl.cpp aosp_4.0.1_drivers/frameworks/base/opengl/libs/EGL/egl.cpp
+--- aosp_4.0.1/frameworks/base/opengl/libs/EGL/egl.cpp	2014-03-02 22:25:01.466359414 +0100
++++ aosp_4.0.1_drivers/frameworks/base/opengl/libs/EGL/egl.cpp	2014-02-27 18:31:07.000000000 +0100
+@@ -212,10 +212,6 @@
+ 
+ EGLImageKHR egl_get_image_for_current_context(EGLImageKHR image)
+ {
+-    ImageRef _i(image);
+-    if (!_i.get())
+-        return EGL_NO_IMAGE_KHR;
+-
+     EGLContext context = egl_tls_t::getContext();
+     if (context == EGL_NO_CONTEXT || image == EGL_NO_IMAGE_KHR)
+         return EGL_NO_IMAGE_KHR;
+@@ -224,6 +220,10 @@
+     if (c == NULL) // this should never happen
+         return EGL_NO_IMAGE_KHR;
+ 
++    ImageRef _i(image);
++    if (!_i.get())
++        return EGL_NO_IMAGE_KHR;
++
+     // here we don't validate the context because if it's been marked for
+     // termination, this call should still succeed since it's internal to
+     // EGL.
+diff -Naur aosp_4.0.1/frameworks/base/opengl/libs/EGL/egl_entries.in aosp_4.0.1_drivers/frameworks/base/opengl/libs/EGL/egl_entries.in
+--- aosp_4.0.1/frameworks/base/opengl/libs/EGL/egl_entries.in	2014-03-02 22:25:01.470359414 +0100
++++ aosp_4.0.1_drivers/frameworks/base/opengl/libs/EGL/egl_entries.in	2014-02-27 18:31:07.000000000 +0100
+@@ -62,6 +62,7 @@
+ 
+ EGL_ENTRY(EGLBoolean, eglSetSwapRectangleANDROID, EGLDisplay, EGLSurface, EGLint, EGLint, EGLint, EGLint)
+ EGL_ENTRY(EGLClientBuffer, eglGetRenderBufferANDROID, EGLDisplay, EGLSurface)
++EGL_ENTRY(void*, eglGetComposerANDROID, EGLDisplay, EGLSurface)
+ 
+ /* NVIDIA extensions */
+ 
+diff -Naur aosp_4.0.1/frameworks/base/opengl/libs/EGL/getProcAddress.cpp aosp_4.0.1_drivers/frameworks/base/opengl/libs/EGL/getProcAddress.cpp
+--- aosp_4.0.1/frameworks/base/opengl/libs/EGL/getProcAddress.cpp	2014-03-02 22:25:01.470359414 +0100
++++ aosp_4.0.1_drivers/frameworks/base/opengl/libs/EGL/getProcAddress.cpp	2014-02-27 18:31:07.000000000 +0100
+@@ -42,8 +42,12 @@
+             "mrc p15, 0, " #reg ", c13, c0, 3 \n"
+     #else
+         #define GET_TLS(reg) \
++           "push   {r0,r1,r2,r3,lr}                  \n"           \
+             "mov   " #reg ", #0xFFFF0FFF      \n"  \
+-            "ldr   " #reg ", [" #reg ", #-15] \n"
++                       "sub  " #reg "," #reg ",#0x1F     \n"           \
++                       "blx   " #reg "                                   \n"           \
++                       "mov   " #reg ", r0                       \n"           \
++                       "pop    {r0,r1,r2,r3,lr}                  \n"
+     #endif
+ 
+     #define API_ENTRY(_api) __attribute__((naked)) _api
+@@ -51,8 +55,9 @@
+     #define CALL_GL_EXTENSION_API(_api)                         \
+          asm volatile(                                          \
+             GET_TLS(r12)                                        \
+-            "ldr   r12, [r12, %[tls]] \n"                       \
+             "cmp   r12, #0            \n"                       \
++            "ldrne   r12, [r12, %[tls]] \n"                     \
++            "cmpne   r12, #0            \n"                     \
+             "ldrne r12, [r12, %[api]] \n"                       \
+             "cmpne r12, #0            \n"                       \
+             "bxne  r12                \n"                       \
+diff -Naur aosp_4.0.1/frameworks/base/opengl/libs/GLES2/gl2.cpp aosp_4.0.1_drivers/frameworks/base/opengl/libs/GLES2/gl2.cpp
+--- aosp_4.0.1/frameworks/base/opengl/libs/GLES2/gl2.cpp	2014-03-02 22:25:01.474359414 +0100
++++ aosp_4.0.1_drivers/frameworks/base/opengl/libs/GLES2/gl2.cpp	2014-02-27 18:31:07.000000000 +0100
+@@ -48,8 +48,12 @@
+             "mrc p15, 0, " #reg ", c13, c0, 3 \n"
+     #else
+         #define GET_TLS(reg) \
++                       "push   {r0,r1,r2,r3,lr}                  \n"           \
+             "mov   " #reg ", #0xFFFF0FFF      \n"  \
+-            "ldr   " #reg ", [" #reg ", #-15] \n"
++                       "sub  " #reg "," #reg ",#0x1F     \n"           \
++                       "blx   " #reg "                                   \n"           \
++                       "mov   " #reg ", r0                       \n"           \
++                       "pop    {r0,r1,r2,r3,lr}                  \n"
+     #endif
+ 
+     #define API_ENTRY(_api) __attribute__((naked)) _api
+@@ -57,8 +61,9 @@
+     #define CALL_GL_API(_api, ...)                              \
+          asm volatile(                                          \
+             GET_TLS(r12)                                        \
+-            "ldr   r12, [r12, %[tls]] \n"                       \
+             "cmp   r12, #0            \n"                       \
++            "ldrne   r12, [r12, %[tls]] \n"                     \
++            "cmpne   r12, #0            \n"                     \
+             "ldrne pc,  [r12, %[api]] \n"                       \
+             "mov   r0, #0             \n"                       \
+             "bx    lr                 \n"                       \
+diff -Naur aosp_4.0.1/frameworks/base/opengl/libs/GLES_CM/gl.cpp aosp_4.0.1_drivers/frameworks/base/opengl/libs/GLES_CM/gl.cpp
+--- aosp_4.0.1/frameworks/base/opengl/libs/GLES_CM/gl.cpp	2014-03-02 22:25:01.486359413 +0100
++++ aosp_4.0.1_drivers/frameworks/base/opengl/libs/GLES_CM/gl.cpp	2014-02-27 18:31:07.000000000 +0100
+@@ -102,8 +102,12 @@
+             "mrc p15, 0, " #reg ", c13, c0, 3 \n"
+     #else
+         #define GET_TLS(reg) \
++                       "push   {r0,r1,r2,r3,lr}                  \n"           \
+             "mov   " #reg ", #0xFFFF0FFF      \n"  \
+-            "ldr   " #reg ", [" #reg ", #-15] \n"
++                       "sub  " #reg "," #reg ",#0x1F     \n"           \
++                       "blx   " #reg "                                   \n"           \
++                       "mov   " #reg ", r0                       \n"           \
++                       "pop    {r0,r1,r2,r3,lr}                  \n"
+     #endif
+ 
+     #define API_ENTRY(_api) __attribute__((naked)) _api
+@@ -111,8 +115,9 @@
+     #define CALL_GL_API(_api, ...)                              \
+          asm volatile(                                          \
+             GET_TLS(r12)                                        \
+-            "ldr   r12, [r12, %[tls]] \n"                       \
+             "cmp   r12, #0            \n"                       \
++            "ldrne   r12, [r12, %[tls]] \n"                     \
++            "cmpne   r12, #0            \n"                     \
+             "ldrne pc,  [r12, %[api]] \n"                       \
+             "mov   r0, #0             \n"                       \
+             "bx    lr                 \n"                       \
+diff -Naur aosp_4.0.1/frameworks/base/services/input/InputReader.cpp aosp_4.0.1_drivers/frameworks/base/services/input/InputReader.cpp
+--- aosp_4.0.1/frameworks/base/services/input/InputReader.cpp	2014-03-02 22:25:03.662359337 +0100
++++ aosp_4.0.1_drivers/frameworks/base/services/input/InputReader.cpp	2014-02-27 18:31:07.000000000 +0100
+@@ -2536,9 +2536,12 @@
+         // The device is a cursor device with a touch pad attached.
+         // By default don't use the touch pad to move the pointer.
+         mParameters.deviceType = Parameters::DEVICE_TYPE_TOUCH_PAD;
++		LOGE(" DEVICE_TYPE_TOUCH_PAD");
+     } else {
+         // The device is a touch pad of unknown purpose.
+-        mParameters.deviceType = Parameters::DEVICE_TYPE_POINTER;
++        //mParameters.deviceType = Parameters::DEVICE_TYPE_POINTER;
++		mParameters.deviceType = Parameters::DEVICE_TYPE_TOUCH_SCREEN;
++        LOGE(" DEVICE_TYPE_POINTER - modded to TOUCH_SCREEN");
+     }
+ 
+     String8 deviceTypeString;
+diff -Naur aosp_4.0.1/frameworks/base/services/surfaceflinger/Android.mk aosp_4.0.1_drivers/frameworks/base/services/surfaceflinger/Android.mk
+--- aosp_4.0.1/frameworks/base/services/surfaceflinger/Android.mk	2014-03-02 22:25:04.086359323 +0100
++++ aosp_4.0.1_drivers/frameworks/base/services/surfaceflinger/Android.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -30,6 +30,10 @@
+ 	LOCAL_CFLAGS += -DHAS_CONTEXT_PRIORITY -DNEVER_DEFAULT_TO_ASYNC_MODE
+ endif
+ 
++ifneq (,$(findstring $(TARGET_DEVICE),tuna toro maguro))
++	LOCAL_CFLAGS += -DREFRESH_RATE=59
++endif
++
+ 
+ LOCAL_SHARED_LIBRARIES := \
+ 	libcutils \
+diff -Naur aosp_4.0.1/frameworks/base/services/surfaceflinger/DisplayHardware/DisplayHardware.cpp aosp_4.0.1_drivers/frameworks/base/services/surfaceflinger/DisplayHardware/DisplayHardware.cpp
+--- aosp_4.0.1/frameworks/base/services/surfaceflinger/DisplayHardware/DisplayHardware.cpp	2014-03-02 22:25:04.086359323 +0100
++++ aosp_4.0.1_drivers/frameworks/base/services/surfaceflinger/DisplayHardware/DisplayHardware.cpp	2014-02-27 18:31:07.000000000 +0100
+@@ -53,7 +53,7 @@
+         GLenum error = glGetError();
+         if (error == GL_NO_ERROR)
+             break;
+-        LOGE("GL error 0x%04x", int(error));
++//        LOGE("GL error 0x%04x", int(error));
+     } while(true);
+ }
+ 
+@@ -111,10 +111,12 @@
+     eglGetConfigs(dpy, NULL, 0, &numConfigs);
+     EGLConfig* const configs = new EGLConfig[numConfigs];
+     eglChooseConfig(dpy, attrs, configs, numConfigs, &n);
++LOGE("eglChooseConfig %d",n);
+     for (int i=0 ; i<n ; i++) {
+         EGLint nativeVisualId = 0;
+         eglGetConfigAttrib(dpy, configs[i], EGL_NATIVE_VISUAL_ID, &nativeVisualId);
+-        if (nativeVisualId>0 && format == nativeVisualId) {
++        LOGE("get attrib %d %d",format,nativeVisualId);
++	if (nativeVisualId>0 && format == nativeVisualId) {
+             *outConfig = configs[i];
+             delete [] configs;
+             return NO_ERROR;
+@@ -141,6 +143,17 @@
+     mDpiY = mNativeWindow->ydpi;
+     mRefreshRate = fbDev->fps;
+ 
++
++/* FIXME: this is a temporary HACK until we are able to report the refresh rate
++ * properly from the HAL. The WindowManagerService now relies on this value.
++ */
++#ifndef REFRESH_RATE
++    mRefreshRate = fbDev->fps;
++#else
++    mRefreshRate = REFRESH_RATE;
++#warning "refresh rate set via makefile to REFRESH_RATE"
++#endif
++
+     EGLint w, h, dummy;
+     EGLint numConfigs=0;
+     EGLSurface surface;
+@@ -307,7 +320,7 @@
+     LOGI("flags = %08x", mFlags);
+ 
+     // Unbind the context from this thread
+-    eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
++   // eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+ 
+ 
+     // initialize the H/W composer

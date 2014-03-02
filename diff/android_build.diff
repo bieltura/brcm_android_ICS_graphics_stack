@@ -1,0 +1,23 @@
+diff -Naur aosp_4.0.1/build/core/legacy_prebuilts.mk aosp_4.0.1_drivers/build/core/legacy_prebuilts.mk
+--- aosp_4.0.1/build/core/legacy_prebuilts.mk	2014-03-02 22:21:34.322366624 +0100
++++ aosp_4.0.1_drivers/build/core/legacy_prebuilts.mk	2014-02-27 18:31:06.000000000 +0100
+@@ -123,4 +123,5 @@
+ 	wl1271.bin \
+ 	zoneinfo.dat \
+ 	zoneinfo.idx \
+-	zoneinfo.version
++	zoneinfo.version \
++	egl.cfg
+diff -Naur aosp_4.0.1/build/target/board/generic/device.mk aosp_4.0.1_drivers/build/target/board/generic/device.mk
+--- aosp_4.0.1/build/target/board/generic/device.mk	2014-03-02 22:21:34.334366624 +0100
++++ aosp_4.0.1_drivers/build/target/board/generic/device.mk	2014-02-27 18:31:07.000000000 +0100
+@@ -25,6 +25,8 @@
+     development/data/etc/apns-conf.xml:system/etc/apns-conf.xml \
+     development/data/etc/vold.conf:system/etc/vold.conf \
+     development/tools/emulator/system/camera/media_profiles.xml:system/etc/media_profiles.xml \
++	brcm_usrlib/dag/vmcsx/egl.cfg:system/lib/egl/egl.cfg \
+ 
+ PRODUCT_PACKAGES := \
+-    audio.primary.goldfish
++    audio.primary.goldfish \
++	libGLES_hgl
